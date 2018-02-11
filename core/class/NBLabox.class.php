@@ -1,435 +1,17 @@
 <?php
-
-/* This file is part of Jeedom.
- *
- * Jeedom is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Jeedom is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Jeedom. If not, see <http://www.gnu.org/licenses/>.
+/**
+ * This file is part of Jeedom's NBLabox plugin.
+ * @copyright Neurall
+ * @licence https://opensource.org/licenses/GPL-2.0 GPL-2.0
  */
+require_once __DIR__ . '/../../../../core/php/core.inc.php';
+require_once __DIR__ . '/../../vendor/autoload.php';
 
-/* * ***************************Includes********************************* */
-require_once dirname(__FILE__) . '/../../../../core/php/core.inc.php';
+use NBLabox\Box\NumericableBox;
+use NBLabox\Curl\CurlSession;
 
-class CurlRequest {
-
-    private $ch;
-
-    /**
-     * Init curl session
-     *
-     * $params = array('url' => '',
-     *                    'host' => '',
-     *                   'header' => '',
-     *                   'method' => '',
-     *                   'referer' => '',
-     *                   'cookie' => '',
-     *                   'post_fields' => '',
-     *                    ['login' => '',]
-     *                    ['password' => '',]
-     *                   'timeout' => 0
-     *                   );
-     */
-    public function __construct($params) {
-        $options = array(
-	    CURLOPT_RETURNTRANSFER => true, // to return web page
-            CURLOPT_HEADER         => true, // to return headers in addition to content
-            CURLOPT_FOLLOWLOCATION => true, // to follow redirects
-            CURLOPT_ENCODING       => "",   // to handle all encodings
-            CURLOPT_AUTOREFERER    => true, // to set referer on redirect
-            CURLOPT_CONNECTTIMEOUT => 120,  // set a timeout on connect
-            CURLOPT_TIMEOUT        => 120,  // set a timeout on response
-            CURLOPT_MAXREDIRS      => 10,   // to stop after 10 redirects
-            //CURLINFO_HEADER_OUT    => true, // no header out
-            CURLOPT_SSL_VERIFYPEER => 0,// to disable SSL Cert checks
-            CURLOPT_SSL_VERIFYHOST => 0,
-            CURLOPT_COOKIEJAR      =>$params['cookiejar'],
-            CURLOPT_COOKIEFILE     =>$params['cookiejar'],
-            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
-            CURLOPT_VERBOSE        => 1,
-        );
-        $this->ch = curl_init($params['url']);
-        curl_setopt_array( $this->ch, $options );
-
-        if ($params['port'])
-            curl_setopt($this->ch, CURLOPT_PORT, $params['port']);
-
-        if ($params['method'] == "POST") {
-            curl_setopt($this->ch, CURLOPT_POST, TRUE);
-            curl_setopt($this->ch, CURLOPT_POSTFIELDS, $params['post_fields']);
-        }
-        if ($params['referer'])
-            curl_setopt($this->ch, CURLOPT_REFERER, $params['referer']);
-
-        }
-
-    /**
-     * Execute curl request
-     *
-     * @return array  'header','body','curl_error','http_code','last_url'
-     */
-    public function exec($rawContent = TRUE) {
-        $response = curl_exec($this->ch);
-        $error = curl_error($this->ch);
-        $result = array('header' => '',
-            'body' => '',
-            'curl_error' => '',
-            'http_code' => '',
-            'last_url' => '');
-        if ($error != "") {
-            $result['curl_error'] = $error;
-            return $result;
-        }
-
-        $header_size = curl_getinfo($this->ch, CURLINFO_HEADER_SIZE);
-        $result['header'] = substr($response, 0, $header_size);
-        if ($rawContent == TRUE)
-        $result['body'] = substr($response, $header_size);
-        else {
-            $doc = new DOMDocument();
-            if (@$doc->loadHTML($response) === true) {
-                return new DOMXpath($doc);
-            }
-        }
-        $result['http_code'] = curl_getinfo($this->ch, CURLINFO_HTTP_CODE);
-        $result['last_url'] = curl_getinfo($this->ch, CURLINFO_EFFECTIVE_URL);
-        return $result;
-    }
-
-}
-
-class LaBox {
-
-    private $curl, $param, $login, $password, $isloggeddIn, $fetched, $fetchresult;
-
-    //put your code here
-    public function __construct($param) {
-        // set a unique cookie jar file for the whole session
-        $param['cookie']=1;
-        $param['cookiejar']= tempnam ("/tmp", "CURLCOOKIE");
-                log::add('NBLabox', 'debug', 'grant cookie '.$param['cookiejar']);
-        $this->param = $param;
-        $this->curl = new CurlRequest($param);
-        $this->fetched = FALSE;
-    }
-
-    public function __destruct() {
-        if ($this->isloggeddIn == 1) {
-            log::add('NBLabox', 'debug', 'try to logout');
-            $this->doLogout();
-        }
-            // destroy cookie file
-        try{
-            log::add('NBLabox', 'debug', 'delete cookie file '.$this->param['cookiejar']);
-            unlink($this->param['cookiejar'] );
-        }
-        catch(Exception $e) {
-
-        }
-    }
-
-    /*
-     * fetch page content, store it in ^curl variable with state variables returned by curl function
-     */
-
-    public function exec() {
-
-        try {
-            $result = $this->curl->exec();
-            if ($result['curl_error'])
-                return FALSE;
-            if ($result['http_code'] != '200')
-                return FALSE;
-            if (!$result['body'])
-                return FALSE;
-        } catch (Exception $e) {
-//                    echo 'debug : '.$e->getMessage();
-            return FALSE;
-        }
-        $this->fetched = TRUE;
-        return (($this->fetchresult = array("header" => $result['header'], "body" => $result['body'])));
-    }
-
-    /*
-     * returns TRUE is this is a LaBox system otherwhise FALSE
-     */
-
-    public function autoDetect() {
-        $host = parse_url($this->param['url'], PHP_URL_HOST);
-            $errno = 0;
-            $errstr = "";
-//            log::add('NBLabox', 'debug', ' open socket on port '.$host.':'.$this->param['port']);
-            $fp = @fsockopen($host, $this->param['port'], $errno, $errstr, 10); // check regular http port
-  //            $fp = @fsockopen($host, $this->param['port'], $errno, $errstr, 10); // check regular http port
-            if ($fp == FALSE) {
-                log::add('NBLabox', 'debug', 'cant open socket on port '.$host.':'.$this->param['port']);
-                return FALSE;
-            }
-            if (is_resource($fp)) { // found
-                fclose($fp);
-                // now check if this is LaBox by getting index page content and analyse it
-                // first read index page content
-                if ($this->fetched == FALSE)
-                    $result = $this->exec();
-                ELSE
-                    $result = $this->fetchresult;
-                if ($result == FALSE) {
-                    log::add('NBLabox', 'debug', 'page found on '.$host." but no readable content");
-                    return FALSE; // if there is no readable content
-                }
-// now seach for specific numericable information in it such as login form
-                if (strpos($result['body'], "logo-num-HD") == FALSE) {
-                    log::add('NBLabox', 'debug', 'page found on '.$host." but no numericable signature present ->".$result['body']);
-                    return FALSE;
-                }
-                return $this->fetchresult;
-            } else
-                log::add('NBLabox', 'debug', 'cant find ressource '.$host.':'.$this->param['port']);
-        return FALSE;
-
-    }
-
-    public function getPage($url, $cookie, $referer='', $port=80) {
-         $getparams = array(
-            'url' => $url,
-            'host' => '',
-            'port' => $port,
-            'header' => '',
-            'method' => 'GET', // 'POST','HEAD'
-            'referer' => $referer,
-            'cookie' =>1,
-            'cookiejar' => $cookie,
-            'post_fields' => '',
-            'timeout' => 20
-        );
-        log::add('NBLabox', 'debug', __METHOD__ . ' get page '.$url.' referer='.$referer. ' port='.$port);
-        $getpage = new CurlRequest($getparams);
-        return  $getpage->exec();
-    }
-
-    public function postPage($url, $postparams, $cookie, $referer ='', $port=80) {
-         $getparams = array(
-            'url' => $url,
-            'host' => '',
-            'port' => $port,
-            'header' => '',
-            'method' => 'POST', // 'POST','HEAD'
-            'referer' => $referer,
-            'cookie' =>1,
-            'cookiejar' => $cookie,
-            'post_fields' => $postparams,
-            'timeout' => 20
-        );
-        log::add('NBLabox', 'debug', __METHOD__ . ' post page '.$url.' referer='.$referer. ' port='.$port);
-        $getpage = new CurlRequest($getparams);
-        return $getpage->exec();
-    }
-
-    public function doLogin($login, $password) {
-        $this->doLogout();
-        $urlitems = parse_url($this->param['url']);
-//         get basic url from current request
-        log::add('NBLabox', 'debug', __METHOD__ . ' attempt login POST '.  'https://' . $urlitems['host'] . '/goform/login on port '.$this->param['port']);
-        $result = $this->postPage('https://' . $urlitems['host'] . '/goform/login',
-                'loginUsername=' . $login . '&loginPassword=' .  urlencode($password),
-                $this->param['cookiejar'],
-                'config.html',$this->param['port']);
-
-        log::add('NBLabox', 'debug', __METHOD__ . ' returned from login '.  json_encode($result));
-
-        $notloggedin = strpos($result['header'], "Location: https://".$urlitems['host']."/login.html");
-        if ($notloggedin !== false) {
-            log::add('NBLabox', 'warning', __METHOD__ . ' wrong credential, not logged in');
-            $this->isloggeddIn =FALSE;
-            return FALSE;
-        }
-        $alreadyconnected = strpos($result['body'], 'TRY AGAIN');
-        if ($alreadyconnected !== false) {
-            log::add('NBLabox', 'warning', __METHOD__ . ' a user is already logged in, cannot login');
-            $this->isloggeddIn =FALSE;
-            return FALSE;
-        }
-        $loggedin = strpos($result['body'], 'SE DECONNECTER');
-        if ($loggedin !== false) {
-            // can reset
-            $this->isloggeddIn =TRUE;
-            return TRUE;
-        } else {
-            log::add('NBLabox', 'warning', __METHOD__ . ' cannot login, aborting');
-            $this->isloggeddIn =FALSE;
-            return FALSE;
-        }
-
-//<form method="post" action="/goform/login" name="login">
-//<input name="loginUsername" type="text" size="30" />
-//<input name="loginPassword" type="password" size="30" maxlength="63" />
-//<input type="button" class="num-button2" value="OK" id="checkPWD" onClick="return myDisableButton(this);" />
-//</form>
-    }
-
-    public function doLogout() {
-        $urlitems = parse_url($this->param['url']);
-        $params = array(
-            'url' => 'https://' . $urlitems['host'] . '/logout.html',
-            'port' => 443,
-            'host' => '',
-            'header' => '',
-            'method' => 'GET', // 'POST','HEAD'
-            'referer' => 'config.html',
-            'cookie' =>1,
-            'cookiejar' => $this->param['cookiejar'],
-            'post_fields' => '', // 'var1=value&var2=value
-            'timeout' => 20
-        );
-        log::add('NBLabox', 'debug', __METHOD__ . ' logout called with '.$params['cookiejar']);
-//        log::add('NBLabox', 'debug', __METHOD__ . ' logout '.json_encode($params, true));
-        $logout = new CurlRequest($params);
-        $result = $logout->exec();
-        if ($result == FALSE)
-            return FALSE;
-        //log::add('NBLabox', 'debug', __METHOD__ . ' logout '.json_encode($result, true));
-        $this->isloggeddIn = FALSE;
-        log::add('NBLabox', 'debug', __METHOD__ . ' logout page returned '.$result['http_code']);
-        RETURN TRUE;
-    }
-
-    public function restartBoxModem() {
-        $urlitems = parse_url($this->param['url']);
-//        $nbl = new NumericableBox($this->param['ip'], $this->login, $this->password, 443);
-//        $result = $nbl->reboot();
-        $this->doLogin($this->login, $this->password);
-        log::add('NBLabox', 'debug', __METHOD__ . ' reset modem attempt '.json_encode($result, true));
-        $result = $this->postPage('https://' . $urlitems['host'] . '/goform/WebUiOnlyReboot',  '', $this->param['cookiejar'], 'config.html',$this->param['port']);
-        log::add('NBLabox', 'debug', __METHOD__ . ' reset modem returns '.json_encode($result, true));
-        return TRUE;
-
-//<form action="/goform/WebUiOnlyReboot" method="post">
-//<span class="num-button-wrapper">
-//<span class="l"> </span>
-//<span class="r"> </span>
-//<input type="submit" class="num-button" value="Redémarrer votre modem" align="middle" onclick="return rebootConfirm();" />
-//</span>
-//</form>
-    }
-
-    // extract value from tag
-    private function extractValue($haystack, $needle, $tag) {
-        $section = strpos($haystack, $needle);
-        if ($section == FALSE)
-            return FALSE;
-        $td = strpos($haystack, '<' . $tag, $section);
-        if ($td == FALSE)
-            return FALSE;
-        $closetag = strpos($haystack, '>', $td);
-        if ($closetag == FALSE)
-            return FALSE;
-        $fintd = strpos($haystack, '</' . $tag . '>', $td);
-        if ($fintd == FALSE)
-            return FALSE;
-        $longueur = $fintd - $closetag - 1;
-        $val = substr($haystack, $closetag + 1, $longueur);
-        return $val;
-    }
-
-    private function fetch() {
-//        echo "debug : " . ($this->fetched == TRUE ? "TRUE" : "FALSE") . "<br/>";
-        //echo "debug : ".($this->fetchresult)."<br/>";
-        if ($this->fetched == FALSE)
-            return $this->exec();
-        ELSE
-            return $this->fetchresult;
-    }
-
-    public function getPublicIPAddress() {
-        if (($result = $this->fetch()) == FALSE)
-            return FALSE;
-        return $this->extractValue($result['body'], "Votre adresse IP", 'td');
-    }
-
-    public function getMask() {
-        if (($result = $this->fetch()) == FALSE)
-            return FALSE;
-        return $this->extractValue($result['body'], "Votre masque de sous", 'td');
-    }
-
-    public function getDefaultGateway() {
-        if (($result = $this->fetch()) == FALSE)
-            return FALSE;
-        return $this->extractValue($result['body'], "Votre passerelle", 'td');
-    }
-
-    public function getNumericableDNS() {
-        if (($result = $this->fetch()) == FALSE)
-            return FALSE;
-        $dns = $this->extractValue($result['body'], "Vos DNS", 'td');
-        if ($dns != "") {
-            $dns = trim($dns);
-            $pos = strpos($dns, "et");
-            $dns1 = substr($dns, 0, $pos - 1);
-            $dns2 = substr($dns, $pos + 3, strlen($dns) - $pos - 3);
-            return array("primary" => $dns1, "secondary" => $dns2);
-        }
-        return FALSE;
-    }
-
-    public function getBandwidth() {
-        if (($result = $this->fetch()) == FALSE)
-            return FALSE;
-        $max = $this->extractValue($result['body'], "Descendant maximum", 'td');
-        if ($max == FALSE)
-            return FALSE;
-        $min = $this->extractValue($result['body'], "Montant maximum", 'td');
-        if ($min == FALSE)
-            return FALSE;
-        $max = substr($max, 0, strlen($max) - 4);
-        $min = substr($min, 0, strlen($min) - 4);
-        return array('min' => $min, 'max' => $max);
-    }
-
-    public function getHWVer() {
-        if (($result = $this->fetch()) == FALSE)
-            return FALSE;
-        return $this->extractValue($result['body'], "Version matériel", 'td');
-    }
-
-    public function getSWVer() {
-        if (($result = $this->fetch()) == FALSE)
-            return FALSE;
-        return $this->extractValue($result['body'], "Version logiciel", 'td');
-    }
-
-    public function resetBoxModem($login, $password) {
-        log::add('NBLabox', 'debug', __METHOD__ . ' reset modem initiated');
-        $this->doLogin($login, $password);
-          if ($this->isloggeddIn == 0) {
-          log::add('NBLabox', 'error', 'cannot login using credential '.$this->login);  return FALSE; }
-          else
-            $result = $this->restartBoxModem();
-        return TRUE;
-    }
-
-}
-
-class httpRequest {
-
-    public static function getData($v) {
-        if (is_array($_GET))
-            if (array_key_exists($v, $_GET))
-                return $_GET[$v];
-        return FALSE;
-    }
-
-}
-
-class NBLabox extends eqLogic {
+class NBLabox extends eqLogic
+{
     /*     * *************************Attributs****************************** */
 
     public static $_widgetPossibility = array('custom' => true);
@@ -498,122 +80,81 @@ class NBLabox extends eqLogic {
         return;
     }
 
-       public function resetModem() {
+    /** Restart the box. */
+    public function restartModem()
+    {
         try {
-            log::add('NBLabox', 'debug', __METHOD__ . "reset modem started");
-            $laboxip = $this->getConfiguration('laboxAddr');
-            log::add('NBLabox', 'debug', __METHOD__ . " reset : addr found is [" . $laboxip . ']');
-            if ($laboxip == "")
+            log::add('NBLabox', 'debug', __METHOD__ . " restart modem started");
+
+            $ipBox = $this->getConfiguration('laboxAddr');
+            $login = $this->getConfiguration('laboxLogin');
+            $password = $this->getConfiguration('laboxPassword');
+            log::add('NBLabox', 'debug', __METHOD__ . " restart : addr found is [" . $ipBox . ']');
+            if (($ipBox == "") || ($login == "") || ($password == "")) {
                 return;
-            $url = 'https://' . $laboxip;
-            log::add('NBLabox', 'debug', __METHOD__ . "  query [" . $url. ']');
-            $params = array(
-                'ip' => $laboxip,
-                'url' => $url,
-                'host' => '',
-                'header' => '',
-                'method' => 'GET', // 'POST','HEAD'
-                'referer' => '',
-                'cookie' => '',
-                'cookiejar' => '',
-                'port' => 443,
-                'post_fields' => '', // 'var1=value&var2=value
-                'timeout' => 20
-            );
-            $laBox = new LaBox($params);
-            log::add('NBLabox', 'info', __METHOD__ . ' avant reboot tente detection');
-            $detect = $laBox->autoDetect();
-            if ($detect != FALSE) {
-               log::add('NBLabox', 'info', __METHOD__ . ' la box est OK');
-               //$laBox->doLogout(); // supprime les connexions éventuelles
-                $feedbackCmd = $this->getCmd(null, 'reboot');
-                $login = $this->getConfiguration('laboxLogin');
-                $password = $this->getConfiguration('laboxPassword');
-                $result = $laBox->resetBoxModem($login, $password);
-//                if ($result) $laBox->doLogout();
-                $feedbackCmd->event($result);
             }
 
-           log::add('NBLabox', 'debug', __METHOD__ . ' feedback done '.  json_encode($result, true));
+            $box = new NumericableBox($ipBox, new CurlSession());
+            $box->login($login, $password);
+            $box->restart();
+
+            log::add('NBLabox', 'debug', __METHOD__ . ' restart done');
+
         } catch (Exception $e) {
-            log::add('NBLabox', 'debug', __METHOD__ . " update info failed " . $e->getMessage());
-            return '';
+            log::add('NBLabox', 'debug', __METHOD__ . " restart failed " . $e->getMessage());
         }
-        return;
     }
 
-    public function updateInfo() {
+    /** Updates plugin's commands value. */
+    public function updateInfo()
+    {
         try {
             log::add('NBLabox', 'debug', __METHOD__ . " get status called");
-            $labox = $this->getConfiguration('laboxAddr');
-            log::add('NBLabox', 'debug', __METHOD__ . "  addr found is [" . $labox . ']');
 
-            if ($labox == "")
+            $ipBox = $this->getConfiguration('laboxAddr');
+            log::add('NBLabox', 'debug', __METHOD__ . " addr found is [" . $ipBox . ']');
+
+            if ($ipBox == "") {
                 return;
-            $url = 'https://' . $labox;
-            log::add('NBLabox', 'debug', __METHOD__ . "  query [" . $url. ']');
-            $params = array(
-                'url' => $url,
-                'host' => '',
-                'header' => '',
-                'method' => 'GET', // 'POST','HEAD'
-                'referer' => '',
-                'cookie' => '',
-                'port' => 443,
-                'post_fields' => '', // 'var1=value&var2=value
-                'timeout' => 20
-            );
-            $laBox = new LaBox($params);
-            $detect = $laBox->autoDetect();
-
-            if ($detect == FALSE)
-                $feedback = "ko";
-            else {
-                $feedback = "normal";
-                $feedbackCmd1 = $this->getCmd(null, 'laboxip');
-                $feedbackCmd1->event(($currentip= $laBox->getPublicIPAddress()));  // enregistre l'adresse ip courante pour la comparer à la précédente
-
-                $feedbackCmd2 = $this->getCmd(null, 'laboxgw');
-                $feedbackCmd2->event($laBox->getDefaultGateway());
-
-                $feedbackCmd3 = $this->getCmd(null, 'laboxhwver');
-                $feedbackCmd3->event($laBox->getHWVer());
-
-                $feedbackCmd4 = $this->getCmd(null, 'laboxswver');
-                $feedbackCmd4->event($laBox->getSWVer());
-
-                $feedbackCmd5 = $this->getCmd(null, 'laboxmask');
-                $feedbackCmd5->event($laBox->getMask());
-
-                $dns = $laBox->getNumericableDNS();
-                $feedbackCmd6 = $this->getCmd(null, 'laboxdns1');
-                $feedbackCmd6->event($dns['primary']);
-                $feedbackCmd7 = $this->getCmd(null, 'laboxdns2');
-                $feedbackCmd7->event($dns['secondary']);
-
-                $dns = $laBox->getBandwidth();
-                $feedbackCmd8 = $this->getCmd(null, 'laboxdownload');
-                $feedbackCmd8->event($dns['max']);
-                $feedbackCmd9 = $this->getCmd(null, 'laboxupload');
-                $feedbackCmd9->event($dns['min']);
-
-                $feedbackCmd10 = $this->getCmd(null, 'laboxprevip');
-                $previp = $feedbackCmd10->execCmd(); // récupère l'adresse ip précédente
-                $feedbackCmd10->event($currentip); // met à jour a valeur avec celle actuelle
-
-                if( $previp != $currentip) { // si l'adresse ip a changé, il faut alerter l'utilisateur et régler le DDNS éventuellement
-                   log::add('NBLabox', 'info',"l'adresse ip publique de la box a changé ($currentip)");
-
-                }
             }
-            $feedbackCmd = $this->getCmd(null, 'laboxetat');
-            $feedbackCmd->event($feedback);
-           log::add('NBLabox', 'debug', __METHOD__ . " feedback from box " . json_encode($feedback));
+
+            $cmd = $this->getCmd(null, 'laboxip');
+            $previousIp = $cmd->execCmd(); // récupère l'adresse ip précédente
+
+            $box = new NumericableBox($ipBox, new CurlSession());
+
+            $currentIp = $box->getPublicIp();
+
+            $this->checkAndUpdateCmd('laboxip', $currentIp);
+            $this->checkAndUpdateCmd('laboxgw', $box->getGateway());
+            $this->checkAndUpdateCmd('laboxhwver', $box->getHardwareVersion());
+            $this->checkAndUpdateCmd('laboxswver', $box->getSoftwareVersion());
+            $this->checkAndUpdateCmd('laboxmask', $box->getNetworkMask());
+            $this->checkAndUpdateCmd('laboxdownload', $box->getDownloadBandwidth());
+            $this->checkAndUpdateCmd('laboxupload', $box->getUploadBandwidth());
+
+            $dns = $box->getDns();
+            if (count($dns) >= 1) {
+                $this->checkAndUpdateCmd('laboxdns1', $dns[0]);
+            }
+            if (count($dns) >= 2) {
+                $this->checkAndUpdateCmd('laboxdns2', $dns[1]);
+            }
+
+            $this->checkAndUpdateCmd('laboxetat', 'normal');
+
+            $this->checkAndUpdateCmd('laboxprevip', $previousIp);
+            if ($previousIp != $currentIp) {
+                log::add('NBLabox', 'info', "l'adresse ip publique de la box a changé ($currentIp)");
+
+            }
+
+            log::add('NBLabox', 'debug', __METHOD__ . ' update done');
+
         } catch (Exception $e) {
             log::add('NBLabox', 'debug', __METHOD__ . " update info failed " . $e->getMessage());
-            return '';
+            $this->checkAndUpdateCmd('laboxetat', 'ko');
         }
-        return;
     }
 
 
@@ -805,13 +346,15 @@ class NBLaboxCmd extends cmd
         log::add('NBLabox', 'debug', __METHOD__ . " entered, running cmd=" . $cmd);
         switch ($cmd) {
             case "refresh":
-                $eqLogic = $this->getEqLogic();
-                $eqLogic->updateInfo();
-                $eqLogic->refreshWidget();
+                /** @var NBLabox $equipment */
+                $equipment = $this->getEqLogic();
+                $equipment->updateInfo();
+                $equipment->refreshWidget();
                 break;
             case 'reboot':
-                $eqLogic = $this->getEqLogic();
-                $eqLogic->resetModem();
+                /** @var NBLabox $eqLogic */
+                $equipment = $this->getEqLogic();
+                $equipment->restartModem();
                 break;
 
         }

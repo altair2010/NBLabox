@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<phpunit bootstrap="vendor/autoload.php">
+    <testsuites>
+        <testsuite name="All tests">
+            <directory>./tests/unit/</directory>
+        </testsuite>
+    </testsuites>
+
+    <testsuites>
+        <testsuite name="Do not request the box">
+            <directory>./tests/unit/</directory>
+            <exclude>./tests/unit/Curl</exclude>
+        </testsuite>
+    </testsuites>
+</phpunit>

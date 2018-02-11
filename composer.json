@@ -1,0 +1,35 @@
+{
+  "name": "Jeedom/NBLabox",
+  "description": "xxxx",
+  "type": "project",
+  "license": "xxx",
+  "scripts": {
+  },
+  "authors": [
+    {"name": "altair2010", "role": "Developer"}
+  ],
+  "minimum-stability": "stable",
+  "config": {
+    "platform": {
+      "php": "5.6.30"
+    }
+  },
+  "autoload": {
+    "psr-4": {
+      "NBLabox\\": "src"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "NBLabox\\": "tests/unit"
+    }
+  },
+  "require": {
+    "php": "^5.6.30 || ^7.0",
+    "ext-curl": "*",
+    "ext-xml": "*"
+  },
+  "require-dev": {
+    "ext-mbstring": "*"
+  }
+}

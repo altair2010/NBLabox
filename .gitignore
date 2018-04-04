@@ -57,8 +57,4 @@ Temporary Items
 ### Composer template
 
 composer.phar
-/vendor/*
-
-# Jeedom do not use composer to manage vendor folder, so add exceptions for autoload file
-!/vendor/composer/
-!/vendor/autoload.php
+/vendor/

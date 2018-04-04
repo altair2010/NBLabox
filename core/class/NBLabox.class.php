@@ -12,72 +12,30 @@ use NBLabox\Curl\CurlSession;
 
 class NBLabox extends eqLogic
 {
-    /*     * *************************Attributs****************************** */
-
-    public static $_widgetPossibility = array('custom' => true);
-
-    /*     * ***********************Methode static*************************** */
-
-     /*
-     * Fonction exécutée automatiquement tous les jours par Jeedom
-      public static function cronDayly() {
-
-      }
-     */
-    public static function cronDayly() {
-        foreach (self::byType('NBLabox') as $neurall) {
-            if ($neurall->getIsEnable() == 1)
-            if ($neurall->getConfiguration('laboxAddr') != '') {
-                log::add('NBLabox', 'debug', 'Pull CronDayly pour neurall api');
-                $neurall->updateInfo();
-                $neurall->toHtml('dashboard');
-                $neurall->toHtml('mobile');
-                $neurall->refreshWidget();
+    /** Fonction exécutée automatiquement tous les jours par Jeedom. */
+    public static function cronDayly()
+    {
+        foreach (self::byType('NBLabox') as $equipment) {
+            if (($equipment->getIsEnable() == 1)
+                && ($equipment->getConfiguration('laboxAddr') != '')) {
+                log::add('NBLabox', 'debug', __METHOD__ . ' executed');
+                $equipment->updateInfo();
+                $equipment->refreshWidget();
             }
-            }
+        }
     }
 
-    /*
-     * Fonction exécutée automatiquement toutes les heures par Jeedom
-      public static function cronHourly() {
-
-      }
-     */
-    public static function cronHourly() {
-        foreach (self::byType('NBLabox') as $neurall) {
-            if ($neurall->getIsEnable() == 1)
-            if ($neurall->getConfiguration('laboxAddr') != '') {
-                log::add('NBLabox', 'debug', 'Pull CronHourly pour neurall api');
-                $neurall->updateInfo();
-                $neurall->toHtml('dashboard');
-                $neurall->toHtml('mobile');
-                $neurall->refreshWidget();
+    /** Fonction exécutée automatiquement toutes les heures par Jeedom */
+    public static function cronHourly()
+    {
+        foreach (self::byType('NBLabox') as $equipment) {
+            if (($equipment->getIsEnable() == 1)
+                && ($equipment->getConfiguration('laboxAddr') != '')) {
+                log::add('NBLabox', 'debug', __METHOD__ . ' executed');
+                $equipment->updateInfo();
+                $equipment->refreshWidget();
             }
-            }
-    }
-
-
-    /*
-     * Fonction exécutée automatiquement toutes les minutes par Jeedom
-     */
-    public static function cron($_eqlogic_id = null) {
-//        if ($_eqlogic_id !== null) {
-//            $eqLogics = array(eqLogic::byId($_eqlogic_id));
-//        } else {
-//            $eqLogics = eqLogic::byType('NBLabox');
-//        }
-//        foreach ($eqLogics as $t) {
-//            if ($t->getIsEnable() == 1) {
-//            if ($t->getConfiguration('laboxAddr') != '') {
-//                log::add('NBLabox', 'debug', 'Pull Cron pour neurall api');
-//                $t->updateInfo();
-//                $t->toHtml('dashboard');
-//                $t->toHtml('mobile');
-//                $t->refreshWidget();
-//            }
-//            }
-//        }
-        return;
+        }
     }
 
     /** Restart the box. */
@@ -155,15 +113,6 @@ class NBLabox extends eqLogic
             log::add('NBLabox', 'debug', __METHOD__ . " update info failed " . $e->getMessage());
             $this->checkAndUpdateCmd('laboxetat', 'ko');
         }
-    }
-
-
-   /*     * *********************Méthodes d'instance************************* */
-
-    public function preInsert() {
-        log::add('NBLabox', 'debug', __METHOD__ . " equipment name=" . $this->getName() . " laboxAddr=" . $this->getConfiguration('laboxAddr')
-                . " laboxLogin=" . $this->getConfiguration('laboxLogin')
-                . " laboxPassword=" . $this->getConfiguration('laboxPassword'));
     }
 
     private function createCmd($cmdid, $cmdlabel, $visible = 1) {
@@ -248,9 +197,6 @@ class NBLabox extends eqLogic
         $display->save();
         }
 
-    public function preSave() {
-     }
-
     public function postSave() {
         log::add('NBLabox', 'debug', __METHOD__ . " equipment name=" . $this->getName() . " laboxAddr=" . $this->getConfiguration('laboxAddr')
                 . " laboxLogin=" . $this->getConfiguration('laboxLogin')
@@ -281,22 +227,6 @@ class NBLabox extends eqLogic
             throw new Exception(__("Le nom de connexion est vide, entrez le compte d'administration de la box", __FILE__));
         if ($this->getConfiguration('laboxPassword') == '')
             throw new Exception(__("Le mot de passe est vide, entrez le mot de passe du compte d'administration de la box", __FILE__));
-    }
-
-    public function postUpdate() {
-        log::add('NBLabox', 'debug', __METHOD__ . " enter postupdate " . $this->getName());
-    }
-
-    public function preRemove() {
-        log::add('NBLabox', 'debug', __METHOD__ . " equipment name=" . $this->getName() . " laboxAddr=" . $this->getConfiguration('laboxAddr')
-                . " laboxLogin=" . $this->getConfiguration('laboxLogin')
-                . " laboxPassword=" . $this->getConfiguration('laboxPassword'));
-    }
-
-    public function postRemove() {
-        log::add('NBLabox', 'debug', __METHOD__ . " equipment name=" . $this->getName() . " laboxAddr=" . $this->getConfiguration('laboxAddr')
-                . " laboxLogin=" . $this->getConfiguration('laboxLogin')
-                . " laboxPassword=" . $this->getConfiguration('laboxPassword'));
     }
 
     /**
